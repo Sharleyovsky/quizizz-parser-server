@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -145,6 +146,11 @@ type QuizResponse struct {
 	} `json:"meta"`
 }
 
+type Quiz struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
 func getQuiz(c *gin.Context) {
 	id := c.Param("id")
 
@@ -166,7 +172,20 @@ func getQuiz(c *gin.Context) {
 		fmt.Println("Can not unmarshal JSON")
 	}
 
-	c.IndentedJSON(http.StatusOK, result)
+	var quizArr []Quiz
+
+	for _, question := range result.Data.Quiz.Info.Questions {
+		q := regexp.MustCompile("<[^>]*>") // remove html tags
+		answerIndex := question.Structure.Answer
+		answer := q.ReplaceAllString(question.Structure.Options[answerIndex].Text, "")
+		parsedQuestion := q.ReplaceAllString(question.Structure.Query.Text, "")
+
+		quiz := Quiz{Question: parsedQuestion, Answer: answer}
+
+		quizArr = append(quizArr, quiz)
+	}
+
+	c.IndentedJSON(http.StatusOK, quizArr)
 }
 
 func main() {
