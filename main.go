@@ -145,7 +145,9 @@ type QuizResponse struct {
 	} `json:"meta"`
 }
 
-func getQuiz(id string) QuizResponse {
+func getQuiz(c *gin.Context) {
+	id := c.Param("id")
+
 	url := "https://quizizz.com/quiz/" + id
 	resp, err := http.Get(url)
 
@@ -164,14 +166,14 @@ func getQuiz(id string) QuizResponse {
 		fmt.Println("Can not unmarshal JSON")
 	}
 
-	return result
+	c.IndentedJSON(http.StatusOK, result)
 }
 
 func main() {
-	quiz := getQuiz("59be7b4a1557731200ccfa41")
-	fmt.Println(quiz)
-
 	router := gin.Default()
+
+	router.GET("/quiz/:id", getQuiz)
+
 	err := router.Run()
 	if err != nil {
 		panic("Running server router failed!" + string(err.Error()))
