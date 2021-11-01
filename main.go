@@ -5,10 +5,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"path"
+	"path/filepath"
 	"regexp"
+	"runtime"
+	"strings"
 	"time"
 
+	"github.com/johnfercher/maroto/pkg/props"
+
 	"github.com/gin-gonic/gin"
+	"github.com/johnfercher/maroto/pkg/consts"
+	"github.com/johnfercher/maroto/pkg/pdf"
 )
 
 type QuizResponse struct {
@@ -151,9 +159,11 @@ type Quiz struct {
 	Answer   string `json:"answer"`
 }
 
-func getQuiz(c *gin.Context) {
-	id := c.Param("id")
+type message struct {
+	Message string `json:"message"`
+}
 
+func getQuiz(id string) []Quiz {
 	url := "https://quizizz.com/quiz/" + id
 	resp, err := http.Get(url)
 
@@ -185,13 +195,71 @@ func getQuiz(c *gin.Context) {
 		quizArr = append(quizArr, quiz)
 	}
 
-	c.IndentedJSON(http.StatusOK, quizArr)
+	return quizArr
+}
+
+func createAnswersPDF(quizArr []Quiz, pdfFileName string) bool {
+	m := pdf.NewMaroto(consts.Portrait, consts.A4)
+	rowHeight := 5.0
+
+	for _, quiz := range quizArr {
+		text := quiz.Question + "<b>" + quiz.Answer + "</b>"
+
+		m.Row(rowHeight, func() {
+			m.Col(12, func() {
+				m.Text(text, props.Text{
+					Size:            12.0,
+					Style:           consts.BoldItalic,
+					Family:          consts.Courier,
+					Align:           consts.Center,
+					Top:             1.0,
+					VerticalPadding: 1.0,
+				})
+			})
+		})
+	}
+
+	answersPDF := m.OutputFileAndClose(pdfFileName)
+	if answersPDF != nil {
+		fmt.Println("Could not save PDF:", answersPDF)
+		return false
+	}
+
+	return true
+}
+
+func getAnswers(c *gin.Context) {
+	id := c.Param("id")
+	quiz := getQuiz(id)
+	pdfFileName := id + ".pdf"
+	createdPDF := createAnswersPDF(quiz, pdfFileName)
+
+	if !createdPDF {
+		message := message{Message: "Pdf not found!"}
+		c.IndentedJSON(http.StatusNotFound, message)
+	}
+
+	_, b, _, _ := runtime.Caller(0)
+	rootPath := path.Join(path.Dir(b))
+	pdfPath := filepath.Join(rootPath, pdfFileName)
+
+	if !strings.HasPrefix(filepath.Clean(pdfPath), rootPath) {
+		message := message{Message: "Looks like you are attacking me!"}
+		c.IndentedJSON(http.StatusForbidden, message)
+	}
+
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", "attachment; filename="+pdfFileName)
+	c.Header("Content-type", "application/pdf")
+
+	c.File(pdfPath)
 }
 
 func main() {
 	router := gin.Default()
 
-	router.GET("/quiz/:id", getQuiz)
+	router.GET("/answers/:id", getAnswers)
 
 	err := router.Run()
 	if err != nil {
