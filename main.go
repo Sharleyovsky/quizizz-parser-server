@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/johnfercher/maroto/pkg/props"
@@ -163,6 +162,10 @@ type message struct {
 	Message string `json:"message"`
 }
 
+type QuizRequest struct {
+	ID string `json:"id"`
+}
+
 func getQuiz(id string) []Quiz {
 	url := "https://quizizz.com/quiz/" + id
 	resp, err := http.Get(url)
@@ -199,19 +202,29 @@ func getQuiz(id string) []Quiz {
 }
 
 func createAnswersPDF(quizArr []Quiz, pdfFileName string) bool {
-	m := pdf.NewMaroto(consts.Portrait, consts.A4)
-	rowHeight := 5.0
+	m := pdf.NewMaroto(consts.Portrait, consts.A3)
+	m.AddUTF8Font("Roboto", consts.Normal, "fonts/Roboto-Regular.ttf")
 
 	for _, quiz := range quizArr {
-		text := quiz.Question + "<b>" + quiz.Answer + "</b>"
+		question := "Question:" + " " + quiz.Question
+		answer := "Answer:" + " " + quiz.Answer
 
-		m.Row(rowHeight, func() {
+		m.Row(10, func() {
 			m.Col(12, func() {
-				m.Text(text, props.Text{
-					Size:            12.0,
-					Style:           consts.BoldItalic,
-					Family:          consts.Courier,
-					Align:           consts.Center,
+				m.Text(question, props.Text{
+					Size:            16.0,
+					Family:          "Roboto",
+					Top:             1.0,
+					VerticalPadding: 1.0,
+				})
+			})
+		})
+
+		m.Row(10, func() {
+			m.Col(12, func() {
+				m.Text(answer, props.Text{
+					Size:            16.0,
+					Family:          "Roboto",
 					Top:             1.0,
 					VerticalPadding: 1.0,
 				})
@@ -229,9 +242,19 @@ func createAnswersPDF(quizArr []Quiz, pdfFileName string) bool {
 }
 
 func getAnswers(c *gin.Context) {
-	id := c.Param("id")
-	quiz := getQuiz(id)
-	pdfFileName := id + ".pdf"
+	body, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	var result QuizRequest
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Println("Can not unmarshal JSON")
+	}
+
+	quiz := getQuiz(result.ID)
+	pdfFileName := result.ID + ".pdf"
 	createdPDF := createAnswersPDF(quiz, pdfFileName)
 
 	if !createdPDF {
@@ -243,23 +266,18 @@ func getAnswers(c *gin.Context) {
 	rootPath := path.Join(path.Dir(b))
 	pdfPath := filepath.Join(rootPath, pdfFileName)
 
-	if !strings.HasPrefix(filepath.Clean(pdfPath), rootPath) {
-		message := message{Message: "Looks like you are attacking me!"}
-		c.IndentedJSON(http.StatusForbidden, message)
-	}
-
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Content-Disposition", "attachment; filename="+pdfFileName)
 	c.Header("Content-type", "application/pdf")
 
-	c.File(pdfPath)
+	c.FileAttachment(pdfPath, pdfFileName)
 }
 
 func main() {
 	router := gin.Default()
 
-	router.GET("/answers/:id", getAnswers)
+	router.POST("/answers", getAnswers)
 
 	err := router.Run()
 	if err != nil {
